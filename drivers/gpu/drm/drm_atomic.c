@@ -30,8 +30,9 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_mode.h>
 #include <drm/drm_print.h>
-#include <linux/devfreq_boost.h>
 #include <linux/sync_file.h>
+#include <linux/msm_drm_notify.h>
+#include <linux/devfreq_boost.h>
 
 #include "drm_crtc_internal.h"
 
@@ -2248,7 +2249,7 @@ int drm_mode_atomic_ioctl(struct drm_device *dev,
 			(arg->flags & DRM_MODE_PAGE_FLIP_EVENT))
 		return -EINVAL;
 
-	if (!(arg->flags & DRM_MODE_ATOMIC_TEST_ONLY))
+	if (!(arg->flags & DRM_MODE_ATOMIC_TEST_ONLY && !MSM_DRM_BLANK_UNBLANK_CUST))
 		devfreq_boost_kick(DEVFREQ_CPU_LLCC_DDR_BW);
 
 	drm_modeset_acquire_init(&ctx, 0);

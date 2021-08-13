@@ -248,5 +248,6 @@ const struct inode_operations erofs_dir_iops = {
 	.listxattr = erofs_listxattr,
 #endif
 	.get_acl = erofs_get_acl,
+	.fiemap = erofs_fiemap,
 };
 

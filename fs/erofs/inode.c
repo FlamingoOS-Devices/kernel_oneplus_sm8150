@@ -363,6 +363,7 @@ const struct inode_operations erofs_generic_iops = {
 	.listxattr = erofs_listxattr,
 #endif
 	.get_acl = erofs_get_acl,
+	.fiemap = erofs_fiemap,
 };
 
 const struct inode_operations erofs_symlink_iops = {

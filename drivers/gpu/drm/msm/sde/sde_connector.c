@@ -614,10 +614,10 @@ static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 			if (dsi_display->panel->aod_status==1 && !finger_type) {
 				if (dsi_display->panel->aod_mode == 2) {
 					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_AOD_OFF_HBM_ON_SETTING);
-					pr_err("Send DSI_CMD_AOD_OFF_HBM_ON_SETTING cmds\n");
+					pr_debug("Send DSI_CMD_AOD_OFF_HBM_ON_SETTING cmds\n");
 				} else {
 					rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_REAL_AOD_OFF_HBM_ON_SETTING);
-					pr_err("Send DSI_CMD_REAL_AOD_OFF_HBM_ON_SETTING cmds\n");
+					pr_debug("Send DSI_CMD_REAL_AOD_OFF_HBM_ON_SETTING cmds\n");
 				}
 				aod_fod_flag = true;
 			}
@@ -632,7 +632,7 @@ static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 			}
 			mutex_unlock(&dsi_display->panel->panel_lock);
 			if (rc) {
-				pr_err("failed to send DSI_GAMMA_CMD_SET_HBM_ON cmds, rc=%d\n", rc);
+				pr_debug("failed to send DSI_GAMMA_CMD_SET_HBM_ON cmds, rc=%d\n", rc);
 				return rc;
 			}
 		}
@@ -685,7 +685,7 @@ static int _sde_connector_update_hbm(struct sde_connector *c_conn)
 			mutex_unlock(&dsi_display->panel->panel_lock);
 			_sde_connector_update_bl_scale(c_conn);
 			if (rc) {
-				pr_err("failed to send DSI_CMD_HBM_OFF cmds, rc=%d\n", rc);
+				pr_debug("failed to send DSI_CMD_HBM_OFF cmds, rc=%d\n", rc);
 				return rc;
 			}
 		}

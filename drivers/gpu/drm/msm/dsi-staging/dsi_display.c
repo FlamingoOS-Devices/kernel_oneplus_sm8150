@@ -228,7 +228,7 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	if (!dsi_panel_initialized(panel)) {
 		panel->hbm_backlight = bl_lvl;
 		panel->bl_config.bl_level = bl_lvl;
-		pr_err("HBM_backight =%d\n",panel->hbm_backlight);
+		pr_debug("HBM_backight =%d\n",panel->hbm_backlight);
 		rc = -EINVAL;
 		goto error;
 	}
@@ -364,19 +364,19 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_ON);
 	if (rc) {
-		pr_err("[%s] failed to enable DSI core clocks, rc=%d\n",
+		pr_debug("[%s] failed to enable DSI core clocks, rc=%d\n",
 		       dsi_display->name, rc);
 		goto error;
 	}
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
-		pr_err("unable to set backlight\n");
+		pr_debug("unable to set backlight\n");
 
 	rc = dsi_display_clk_ctrl(dsi_display->dsi_clk_handle,
 			DSI_CORE_CLK, DSI_CLK_OFF);
 	if (rc) {
-		pr_err("[%s] failed to disable DSI core clocks, rc=%d\n",
+		pr_debug("[%s] failed to disable DSI core clocks, rc=%d\n",
 		       dsi_display->name, rc);
 		goto error;
 	}

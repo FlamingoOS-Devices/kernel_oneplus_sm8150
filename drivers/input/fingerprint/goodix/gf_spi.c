@@ -40,6 +40,8 @@
 #include <linux/notifier.h>
 #include <linux/of_gpio.h>
 #include <linux/oneplus/boot_mode.h>
+#include <linux/devfreq_boost.h>
+
 #include <linux/platform_device.h>
 #include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
@@ -445,6 +447,7 @@ int gf_opticalfp_irq_handler(int event)
 		return 0;
 	}
 	if (event == 1) {
+		devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 500);
 		msg = GF_NET_EVENT_TP_TOUCHDOWN;
 		sendnlmsg(&msg);
 	} else if (event == 0) {

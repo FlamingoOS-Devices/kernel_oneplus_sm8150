@@ -7795,7 +7795,7 @@ static int op_set_collapse_fet(struct smb_charger *chg, bool on)
 	return rc;
 }
 
-pm_schg_dcdc_configure_vsysmin(struct smb_charger *chg, int val)
+int pm_schg_dcdc_configure_vsysmin(struct smb_charger *chg, int val)
 {
 
 	int vsys_min_mask = 0x07; // BIT<2:0>
@@ -8004,12 +8004,19 @@ static void set_usb_switch(struct smb_charger *chg, bool enable)
 		return;
 	}
 
+	if (chg->real_charger_type == POWER_SUPPLY_TYPE_USB) {
+		pr_info("%s:OP FIXUP: early return for passthrough\n", __func__);
+		return;
+	}
+
 	if (chg->pd_active) {
-		pr_info("%s:pd_active return\n", __func__);
 		if (chg->typec_mode == POWER_SUPPLY_TYPEC_SINK ||
 				chg->typec_mode == POWER_SUPPLY_TYPEC_SINK_DEBUG_ACCESSORY ||
-				chg->typec_mode == POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER)
+				chg->typec_mode == POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER ||
+				chg->typec_mode == POWER_SUPPLY_TYPEC_SINK_POWERED_CABLE) {
+			pr_info("%s:OP FIXUP: pd_active return\n", __func__);
 			return;
+		}
 	}
 
 	if (enable) {

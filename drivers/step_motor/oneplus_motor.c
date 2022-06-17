@@ -803,7 +803,6 @@ int oneplus_get_motor_type(void)
 
 static void oneplus_set_motor_work_mode_para(int motor_work_mode)
 {
-	int mode = 0;
 	static int mode_pre = -1;
 
 	if (g_the_chip == NULL) {
@@ -823,20 +822,16 @@ static void oneplus_set_motor_work_mode_para(int motor_work_mode)
 	switch (g_the_chip->motor_work_mode) {
 		case MOTOR_MODE_FULL:
 			oneplus_motor_set_working_mode(MOTOR_MODE_FULL);
-			mode = 1;
 			break;
 
 		case MOTOR_MODE_1_16:
 			oneplus_motor_set_working_mode(MOTOR_MODE_1_16);
-			mode = 16;
 			break;
 		case MOTOR_MODE_1_32:
 			oneplus_motor_set_working_mode(MOTOR_MODE_1_32);
-			mode = 32;
 			break;
 		default:
 			oneplus_motor_set_working_mode(MOTOR_MODE_1_32);
-			mode = 32;
 			break;
 	}
 	//default 32

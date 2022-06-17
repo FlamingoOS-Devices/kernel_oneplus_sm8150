@@ -617,25 +617,10 @@ static int drv8834_set_working_mode (int mode)
 static int drv8834_calculate_pwm_count(int L, int mode)
 {
 	int pwm_count = 0;
-	int mdmode = 0;
 
 	if (g_the_chip == NULL) {
 		MOTOR_LOG("g_the_chip null \n");
 		return 0;
-	}
-	switch (mode) {
-	case MOTOR_MODE_FULL:
-		mdmode = 1;
-		break;
-	case MOTOR_MODE_1_16:
-		mdmode = 16;
-		break;
-	case MOTOR_MODE_1_32:
-		mdmode = 32;
-		break;
-	default:
-		mdmode = 32;
-		break;
 	}
 	//PWM = (L*18.06*20*32 )/2.4
 	pwm_count = (L * RATIO_B * RATIO_C *RATIO_D) / (RATIO_A * 100);

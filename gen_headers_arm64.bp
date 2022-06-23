@@ -964,6 +964,7 @@ gen_headers_out_arm64 = [
     "asm/statfs.h",
     "asm/ucontext.h",
     "asm/unistd.h",
+    "linux/f2fs.h",
 ]
 
 genrule {

@@ -970,6 +970,7 @@ gen_headers_out_arm = [
     "asm/swab.h",
     "asm/types.h",
     "asm/unistd.h",
+    "linux/f2fs.h",
 ]
 
 genrule {

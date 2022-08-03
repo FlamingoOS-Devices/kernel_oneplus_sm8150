@@ -1509,14 +1509,6 @@ struct task_struct {
 #ifdef CONFIG_IM
 	int im_flag;
 #endif
-
-#ifdef CONFIG_TPD
-	int tpd;
-	int dtpd; /* dynamic tpd task */
-	int dtpdg; /* dynamic tpd task group */
-#endif
-
-/* add for cpu distribution statistics */
 	atomic64_t cpu_dist[8];
 	atomic64_t total_cpu_dist[8];
 

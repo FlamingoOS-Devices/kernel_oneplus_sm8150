@@ -3120,7 +3120,7 @@ void sde_crtc_complete_commit(struct drm_crtc *crtc,
 			blank = cstate->fingerprint_pressed;
 			notifier_data.data = &blank;
 			notifier_data.id = MSM_DRM_PRIMARY_DISPLAY;
-			pr_err("fingerprint status: %s",
+			pr_debug("fingerprint status: %s",
 			       blank ? "pressed" : "up");
 			SDE_ATRACE_BEGIN("press_event_notify");
 			msm_drm_notifier_call_chain(MSM_DRM_ONSCREENFINGERPRINT_EVENT,
@@ -3275,6 +3275,8 @@ bool sde_crtc_get_fingerprint_pressed(struct drm_crtc_state *crtc_state)
 
 extern int oneplus_force_screenfp;
 extern int oneplus_panel_alpha;
+static int alpha_generated = 0, alpha_generated_dc = 0;
+
 struct ba {
 	u32 brightness;
 	u32 alpha;
@@ -3350,7 +3352,7 @@ struct ba brightness_alpha_lut_dc[] = {
 	{260, 0x00}
 };
 
-struct ba brightness_alpha_lut[21] = {};
+static u32 *alpha_gen, *alpha_gen_dc;
 
 static int interpolate(int x, int xa, int xb, int ya, int yb)
 {
@@ -3366,52 +3368,88 @@ static int interpolate(int x, int xa, int xb, int ya, int yb)
 	return ya + factor + plus + sub;
 }
 
-int brightness_to_alpha(int brightness)
+u32 alpha_generator(struct ba *pre_gen_array, u32 array_size, u32 brightness)
 {
-	int level = ARRAY_SIZE(brightness_alpha_lut);
-	int i = 0;
+	int i;
 
-	for (i = 0; i < ARRAY_SIZE(brightness_alpha_lut); i++){
-		if (brightness_alpha_lut[i].brightness >= brightness)
+	for (i = 0; i < array_size; i++) {
+		if (pre_gen_array[i].brightness >= brightness)
 			break;
 	}
 
 	if (i == 0)
-		return brightness_alpha_lut[0].alpha;
-	else if (i == level)
-		return brightness_alpha_lut[level - 1].alpha;
+		return pre_gen_array[0].alpha;
+
+	if (i == array_size)
+		return pre_gen_array[array_size - 1].alpha;
 
 	return interpolate(brightness,
-			brightness_alpha_lut[i-1].brightness,
-			brightness_alpha_lut[i].brightness,
-			brightness_alpha_lut[i-1].alpha,
-			brightness_alpha_lut[i].alpha);
+			pre_gen_array[i - 1].brightness,
+			pre_gen_array[i].brightness,
+			pre_gen_array[i - 1].alpha,
+			pre_gen_array[i].alpha);
 }
 
-int bl_to_alpha_dc(int brightness)
+void gen_alpha(struct ba *pre_gen_array)
 {
-	int level = ARRAY_SIZE(brightness_alpha_lut_dc);
-	int i = 0;
-	int alpha;
+	int i;
 
-	for (i = 0; i < ARRAY_SIZE(brightness_alpha_lut_dc); i++) {
-		if (brightness_alpha_lut_dc[i].brightness >= brightness)
-			break;
+	if (alpha_generated)
+		return;
+
+	alpha_gen = kmalloc_array(2001, sizeof(u32), GFP_KERNEL);
+
+	for (i = 0; i < 2001; i++) {
+		alpha_gen[i] = alpha_generator(pre_gen_array, 21, i);
 	}
 
-	if (i == 0)
-		alpha = brightness_alpha_lut_dc[0].alpha;
-	else if (i == level)
-		alpha = brightness_alpha_lut_dc[level - 1].alpha;
-	else
-		alpha = interpolate(brightness,
-			brightness_alpha_lut_dc[i-1].brightness,
-			brightness_alpha_lut_dc[i].brightness,
-			brightness_alpha_lut_dc[i-1].alpha,
-			brightness_alpha_lut_dc[i].alpha);
-	return alpha;
+	alpha_generated = 1;
 }
 
+void gen_alpha_dc(void)
+{
+	int i;
+
+	if (alpha_generated_dc)
+		return;
+
+	alpha_gen_dc = kmalloc_array(261, sizeof(u32), GFP_KERNEL);
+
+	for (i = 0; i < 261; i++) {
+		alpha_gen_dc[i] = alpha_generator(brightness_alpha_lut_dc,
+				ARRAY_SIZE(brightness_alpha_lut_dc), i);
+	}
+
+	alpha_generated_dc = 1;
+}
+
+static inline int brightness_to_alpha(int brightness)
+{
+	static const int level = 2001;
+
+	if (unlikely(brightness < 0))
+		return alpha_gen[0];
+
+	if (unlikely(brightness >= level))
+		return alpha_gen[level - 1];
+
+	return alpha_gen[brightness];
+}
+
+static inline int bl_to_alpha_dc(int brightness)
+{
+	static const int level = 261;
+
+	if (unlikely(brightness < 0))
+		return alpha_gen_dc[0];
+
+	if (unlikely(brightness >= level))
+		return alpha_gen_dc[level - 1];
+
+	return alpha_gen_dc[brightness];
+}
+
+bool oneplus_dimlayer_hbm_enable;
 int oneplus_get_panel_brightness_to_alpha(void)
 {
 	struct dsi_display *display = get_main_display();
@@ -3420,7 +3458,7 @@ int oneplus_get_panel_brightness_to_alpha(void)
 		return 0;
 	if (oneplus_panel_alpha)
 		return oneplus_panel_alpha;
-    if (display->panel->dim_status)
+    if (oneplus_dimlayer_hbm_enable)
 		return brightness_to_alpha(display->panel->hbm_backlight);
     else
 	return bl_to_alpha_dc(display->panel->hbm_backlight);
@@ -3442,7 +3480,7 @@ ssize_t oneplus_display_notify_aod_hid(struct device *dev,
 		return count;
 		}
 
-	pr_err("notify aod hid %d\n", onscreenaod_hid );
+	pr_debug("notify aod hid %d\n", onscreenaod_hid );
 	oneplus_onscreenaod_hid = onscreenaod_hid;
 	SDE_ATRACE_END("aod_hid_node");
 	return count;
@@ -3509,6 +3547,9 @@ ssize_t oneplus_display_notify_fp_press(struct device *dev,
 	return count;
 }
 extern int aod_layer_hide;
+extern int oneplus_panel_status;
+extern int backup_dim_status;
+extern bool backup_dimlayer_hbm;
 extern bool HBM_flag;
 extern int dsi_panel_tx_cmd_set (struct dsi_panel *panel, enum dsi_cmd_set_type type);
 int oneplus_dim_status = 0;
@@ -3543,6 +3584,8 @@ int oneplus_aod_dc = 0;
 	dsi_connector = dsi_display->drm_conn;
 	mode_config = &drm_dev->mode_config;
 	sscanf(buf, "%du", &dim_status);
+	if (oneplus_panel_status == 0)
+		dim_status = 0;
 
 	if (dsi_display->panel->aod_status == 0 && (dim_status == 2)) {
 		pr_err("fp set it in normal status\n");
@@ -3566,7 +3609,10 @@ int oneplus_aod_dc = 0;
 	if (dim_status == oneplus_dim_status)
 		return count;
 	oneplus_dim_status = dim_status;
-	pr_err("notify dim %d,aod = %d press= %d aod_hide =%d\n",
+	oneplus_dimlayer_hbm_enable = oneplus_dim_status != 0;
+	backup_dimlayer_hbm = oneplus_dimlayer_hbm_enable;
+	backup_dim_status = oneplus_dim_status;
+	pr_debug("notify dim %d,aod = %d press= %d aod_hide =%d\n",
 		oneplus_dim_status, dsi_display->panel->aod_status, oneplus_onscreenfp_status, aod_layer_hide);
 	if (oneplus_dim_status == 1 && HBM_flag) {
 		rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_ON_5);
@@ -5786,8 +5832,12 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 	}
 
     aod_mode = oneplus_aod_hid;
-	if (oneplus_dim_status == 5 && display->panel->aod_status == 0)
+	if (oneplus_dim_status == 5 && display->panel->aod_status == 0) {
 		dim_mode = 0;
+		oneplus_dim_status = 0;
+		oneplus_dimlayer_hbm_enable = false;
+		pr_err("current dim = %d, oneplus_dimlayer_hbm_enable = %d\n", oneplus_dim_status, oneplus_dimlayer_hbm_enable);
+	}
 
 	for (i = 0; i < cnt; i++) {
 		mode = sde_plane_check_fingerprint_layer(pstates[i].drm_pstate);
@@ -5855,7 +5905,7 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 		}
     }
 	SDE_DEBUG("fp_index=%d,fppressed_index=%d,aod_index=%d\n", fp_index, fppressed_index, aod_index);
-	if (fp_index >= 0 || fppressed_index >= 0 || oneplus_force_screenfp || dim_backlight == 1) {
+	if (oneplus_dimlayer_hbm_enable || oneplus_force_screenfp || dim_backlight == 1) {
 		if (fp_index >= 0 && fppressed_index >= 0) {
 			if (pstates[fp_index].stage >= pstates[fppressed_index].stage) {
 				SDE_ERROR("Bug!!@@@@: fp layer top of fppressed layer\n");
@@ -5892,46 +5942,16 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 			zpos++;
 		}
 
-		if (fp_index >= 0) {
-			if (dim_mode == 0) {
-				//pstates[fp_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
-				fp_index = -1;
-			}
-		}
-        	if (fppressed_index >= 0) {
-			if (fp_mode == 0) {
-				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
-				if(oneplus_aod_fod == 1 && aod_index < 0) {
-					SDE_DEBUG("set reset pstate\n");
-					for (i = 0; i < cnt; i++) {
-						if(i!=fppressed_index ) {
-							if(pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value == 0){
-								pstates[i].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
-							}
-						}
-					}
-				}
-				fppressed_index = -1;
-			} else {
-				pstates[fppressed_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0xff;
-			}
-		}
-		if (aod_index >= 0) {
-			if (aod_mode ==1) {
-				SDE_DEBUG("aod layer hid");
-				SDE_ATRACE_BEGIN("aod_layer_hid");
-				pstates[aod_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
-				aod_index = -1;
-				SDE_ATRACE_END("aod_layer_hid");
-			}
-		}
-		if (fp_index >= 0)
+		if (oneplus_dimlayer_hbm_enable)
 			cstate->fingerprint_mode = true;
 		else
 			cstate->fingerprint_mode = false;
 
-		if ((fp_index >= 0 || dim_backlight > 0) && sde_crtc_config_fingerprint_dim_layer(&cstate->base, zpos)) {
-			SDE_ERROR("Failed to config dim layer\n");
+		if (fp_index >= 0)
+			pstates[fp_index].sde_pstate->property_values[PLANE_PROP_ALPHA].value = 0;
+
+		if (sde_crtc_config_fingerprint_dim_layer(&cstate->base, zpos)) {
+			//SDE_ERROR("Failed to config dim layer\n");
 			return -EINVAL;
 		}
 		if (fppressed_index >= 0)
@@ -5940,6 +5960,7 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 			cstate->fingerprint_pressed = false;
 		}
 	} else {
+		cstate->fingerprint_dim_layer = NULL;
 		cstate->fingerprint_pressed = false;
 		cstate->fingerprint_mode = false;
 		for (i = 0; i < cnt; i++) {
@@ -5948,8 +5969,11 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 			}
 		}
     }
-	if (fp_index < 0 && !dim_backlight) {
+	if (fp_mode == 1 && !oneplus_dimlayer_hbm_enable) {
 		cstate->fingerprint_dim_layer = NULL;
+		cstate->fingerprint_mode = true;
+		//cstate->fingerprint_pressed = true;
+		return 0;
 	}
 
 	return 0;
@@ -6771,7 +6795,7 @@ static int sde_crtc_atomic_set_property(struct drm_crtc *crtc,
 			goto exit;
 
 		ret = _sde_crtc_get_output_fence(crtc, state, &fence_fd);
-		if (ret) {
+		if (unlikely(ret)) {
 			SDE_ERROR("fence create failed rc:%d\n", ret);
 			goto exit;
 		}
@@ -7636,12 +7660,11 @@ struct drm_crtc *sde_crtc_init(struct drm_device *dev, struct drm_plane *plane)
 	sde_crtc_install_properties(crtc, kms->catalog);
 
 	if (dsi_panel_hw_type == DSI_PANEL_SAMSUNG_SOFEF03F_M) {
-		for (i = 0; i < 21; i++)
-			brightness_alpha_lut[i] = brightness_alpha_lut_2[i];
+		gen_alpha(brightness_alpha_lut_2);
 	} else {
-		for (i = 0; i < 21; i++)
-			brightness_alpha_lut[i] = brightness_alpha_lut_1[i];
+		gen_alpha(brightness_alpha_lut_1);
 	}
+	gen_alpha_dc();
 
 	/* Install color processing properties */
 	sde_cp_crtc_init(crtc);

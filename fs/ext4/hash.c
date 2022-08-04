@@ -291,7 +291,7 @@ int ext4fs_dirhash(const struct inode *dir, const char *name, int len,
     struct qstr qstr = {.name = name, .len = len};
 
     if (len && needs_casefold(dir) && um) {
-        buff = kcalloc(PATH_MAX, GFP_KERNEL);
+        buff = kcalloc(sizeof(char), PATH_MAX, GFP_KERNEL);
         if (!buff)
             return -ENOMEM;
 

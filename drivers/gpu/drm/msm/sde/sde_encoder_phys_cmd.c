@@ -17,7 +17,6 @@
 #include "sde_hw_interrupts.h"
 #include "sde_core_irq.h"
 #include "sde_formats.h"
-#include "sde_trace.h"
 
 #define SDE_DEBUG_CMDENC(e, fmt, ...) SDE_DEBUG("enc%d intf%d " fmt, \
 		(e) && (e)->base.parent ? \
@@ -197,7 +196,6 @@ static void sde_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_pp)
 		return;
 
-	SDE_ATRACE_BEGIN("pp_done_irq");
 
 	/* handle rare cases where the ctl_start_irq is not received */
 	if (sde_encoder_phys_cmd_is_master(phys_enc)) {
@@ -231,7 +229,6 @@ static void sde_encoder_phys_cmd_pp_tx_done_irq(void *arg, int irq_idx)
 
 	/* Signal any waiting atomic commit thread */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
-	SDE_ATRACE_END("pp_done_irq");
 }
 
 static void sde_encoder_phys_cmd_autorefresh_done_irq(void *arg, int irq_idx)
@@ -268,7 +265,6 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_pp || !phys_enc->hw_intf)
 		return;
 
-	SDE_ATRACE_BEGIN("rd_ptr_irq");
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	/**
@@ -299,7 +295,6 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 
 	atomic_add_unless(&cmd_enc->pending_vblank_cnt, -1, 0);
 	wake_up_all(&cmd_enc->pending_vblank_wq);
-	SDE_ATRACE_END("rd_ptr_irq");
 }
 
 static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
@@ -313,7 +308,6 @@ static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
 	if (!phys_enc || !phys_enc->hw_ctl)
 		return;
 
-	SDE_ATRACE_BEGIN("ctl_start_irq");
 	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
 
 	ctl = phys_enc->hw_ctl;
@@ -358,7 +352,6 @@ static void sde_encoder_phys_cmd_ctl_start_irq(void *arg, int irq_idx)
 
 	/* Signal any waiting ctl start interrupt */
 	wake_up_all(&phys_enc->pending_kickoff_wq);
-	SDE_ATRACE_END("ctl_start_irq");
 }
 
 static void sde_encoder_phys_cmd_underrun_irq(void *arg, int irq_idx)
@@ -663,9 +656,9 @@ static int _sde_encoder_phys_cmd_poll_write_pointer_started(
 	}
 
 	if (phys_enc->has_intf_te)
-		ret = hw_intf->ops.get_vsync_info(hw_intf, &info);
+		ret = hw_intf->ops.get_vsync_info(hw_intf, &info, false);
 	else
-		ret = hw_pp->ops.get_vsync_info(hw_pp, &info);
+		ret = hw_pp->ops.get_vsync_info(hw_pp, &info, false);
 
 	if (ret)
 		return ret;
@@ -714,13 +707,13 @@ static bool _sde_encoder_phys_cmd_is_ongoing_pptx(
 		if (!hw_intf || !hw_intf->ops.get_vsync_info)
 			return false;
 
-		hw_intf->ops.get_vsync_info(hw_intf, &info);
+		hw_intf->ops.get_vsync_info(hw_intf, &info, true);
 	} else {
 		hw_pp = phys_enc->hw_pp;
 		if (!hw_pp || !hw_pp->ops.get_vsync_info)
 			return false;
 
-		hw_pp->ops.get_vsync_info(hw_pp, &info);
+		hw_pp->ops.get_vsync_info(hw_pp, &info, true);
 	}
 
 	SDE_EVT32(DRMID(phys_enc->parent),
@@ -1173,12 +1166,20 @@ static void sde_encoder_phys_cmd_enable(struct sde_encoder_phys *phys_enc)
 static bool sde_encoder_phys_cmd_is_autorefresh_enabled(
 		struct sde_encoder_phys *phys_enc)
 {
+	struct sde_encoder_phys_cmd *cmd_enc;
 	struct sde_hw_pingpong *hw_pp;
 	struct sde_hw_intf *hw_intf;
 	struct sde_hw_autorefresh cfg;
 	int ret;
 
-	if (!phys_enc || !phys_enc->hw_pp || !phys_enc->hw_intf)
+	if (!phys_enc)
+		return 0;
+
+	cmd_enc = to_sde_encoder_phys_cmd(phys_enc);
+	if (!cmd_enc->autorefresh.cfg.enable)
+		return 0;
+
+	if (!phys_enc->hw_pp || !phys_enc->hw_intf)
 		return 0;
 
 	if (!sde_encoder_phys_cmd_is_master(phys_enc))
@@ -1271,14 +1272,14 @@ static int sde_encoder_phys_cmd_get_write_line_count(
 		if (!hw_intf->ops.get_vsync_info)
 			return -EINVAL;
 
-		if (hw_intf->ops.get_vsync_info(hw_intf, &info))
+		if (hw_intf->ops.get_vsync_info(hw_intf, &info, true))
 			return -EINVAL;
 	} else {
 		hw_pp = phys_enc->hw_pp;
 		if (!hw_pp->ops.get_vsync_info)
 			return -EINVAL;
 
-		if (hw_pp->ops.get_vsync_info(hw_pp, &info))
+		if (hw_pp->ops.get_vsync_info(hw_pp, &info, true))
 			return -EINVAL;
 	}
 
@@ -1471,6 +1472,15 @@ static int _sde_encoder_phys_cmd_wait_for_ctl_start(
 	return ret;
 }
 
+static void sde_encoder_phys_cmd_ctl_start_work(struct work_struct *work)
+{
+	struct sde_encoder_phys_cmd *cmd_enc = container_of(work,
+							    typeof(*cmd_enc),
+							    ctl_wait_work);
+
+	_sde_encoder_phys_cmd_wait_for_ctl_start(&cmd_enc->base);
+}
+
 static int sde_encoder_phys_cmd_wait_for_tx_complete(
 		struct sde_encoder_phys *phys_enc)
 {
@@ -1505,9 +1515,9 @@ static int sde_encoder_phys_cmd_wait_for_commit_done(
 
 	/* only required for master controller */
 	if (sde_encoder_phys_cmd_is_master(phys_enc))
-		rc = _sde_encoder_phys_cmd_wait_for_ctl_start(phys_enc);
+		queue_work(system_unbound_wq, &cmd_enc->ctl_wait_work);
 
-	if (!rc && sde_encoder_phys_cmd_is_master(phys_enc) &&
+	if (sde_encoder_phys_cmd_is_master(phys_enc) &&
 			cmd_enc->autorefresh.cfg.enable)
 		rc = _sde_encoder_phys_cmd_wait_for_autorefresh_done(phys_enc);
 
@@ -1591,6 +1601,9 @@ static void sde_encoder_phys_cmd_prepare_commit(
 
 	if (!sde_encoder_phys_cmd_is_master(phys_enc))
 		return;
+
+	/* Wait for ctl_start interrupt for the previous commit if needed */
+	flush_work(&cmd_enc->ctl_wait_work);
 
 	SDE_EVT32(DRMID(phys_enc->parent), phys_enc->intf_idx - INTF_0,
 			cmd_enc->autorefresh.cfg.enable);
@@ -1798,6 +1811,7 @@ struct sde_encoder_phys *sde_encoder_phys_cmd_init(
 	init_waitqueue_head(&cmd_enc->pending_vblank_wq);
 	atomic_set(&cmd_enc->autorefresh.kickoff_cnt, 0);
 	init_waitqueue_head(&cmd_enc->autorefresh.kickoff_wq);
+	INIT_WORK(&cmd_enc->ctl_wait_work, sde_encoder_phys_cmd_ctl_start_work);
 
 	SDE_DEBUG_CMDENC(cmd_enc, "created\n");
 

@@ -873,106 +873,40 @@ TRACE_EVENT(kgsl_regwrite,
 	)
 );
 
-TRACE_EVENT(kgsl_popp_level,
-
-	TP_PROTO(struct kgsl_device *device, int level1, int level2),
-
-	TP_ARGS(device, level1, level2),
-
-	TP_STRUCT__entry(
-		__string(device_name, device->name)
-		__field(int, level1)
-		__field(int, level2)
-	),
-
-	TP_fast_assign(
-		__assign_str(device_name, device->name);
-		__entry->level1 = level1;
-		__entry->level2 = level2;
-	),
-
-	TP_printk(
-		"d_name=%s old level=%d new level=%d",
-		__get_str(device_name), __entry->level1, __entry->level2)
-);
-
-TRACE_EVENT(kgsl_popp_mod,
-
-	TP_PROTO(struct kgsl_device *device, int x, int y),
-
-	TP_ARGS(device, x, y),
-
-	TP_STRUCT__entry(
-		__string(device_name, device->name)
-		__field(int, x)
-		__field(int, y)
-	),
-
-	TP_fast_assign(
-		__assign_str(device_name, device->name);
-		__entry->x = x;
-		__entry->y = y;
-	),
-
-	TP_printk(
-		"d_name=%s GPU busy mod=%d bus busy mod=%d",
-		__get_str(device_name), __entry->x, __entry->y)
-);
-
-TRACE_EVENT(kgsl_popp_nap,
-
-	TP_PROTO(struct kgsl_device *device, int t, int nap, int percent),
-
-	TP_ARGS(device, t, nap, percent),
-
-	TP_STRUCT__entry(
-		__string(device_name, device->name)
-		__field(int, t)
-		__field(int, nap)
-		__field(int, percent)
-	),
-
-	TP_fast_assign(
-		__assign_str(device_name, device->name);
-		__entry->t = t;
-		__entry->nap = nap;
-		__entry->percent = percent;
-	),
-
-	TP_printk(
-		"d_name=%s nap time=%d number of naps=%d percentage=%d",
-		__get_str(device_name), __entry->t, __entry->nap,
-			__entry->percent)
-);
-
 TRACE_EVENT(kgsl_register_event,
-		TP_PROTO(unsigned int id, unsigned int timestamp, void *func),
-		TP_ARGS(id, timestamp, func),
+		TP_PROTO(unsigned int id, unsigned int timestamp, void *func,
+			enum kgsl_priority prio),
+		TP_ARGS(id, timestamp, func, prio),
 		TP_STRUCT__entry(
 			__field(unsigned int, id)
 			__field(unsigned int, timestamp)
 			__field(void *, func)
+			__field(enum kgsl_priority, prio)
 		),
 		TP_fast_assign(
 			__entry->id = id;
 			__entry->timestamp = timestamp;
 			__entry->func = func;
+			__entry->prio = prio;
 		),
 		TP_printk(
-			"ctx=%u ts=%u cb=%pF",
-			__entry->id, __entry->timestamp, __entry->func)
+			"ctx=%u ts=%u cb=%pF prio=%s",
+			__entry->id, __entry->timestamp, __entry->func,
+			prio_to_string(__entry->prio))
 );
 
 TRACE_EVENT(kgsl_fire_event,
 		TP_PROTO(unsigned int id, unsigned int ts,
-			unsigned int type, unsigned int age, void *func),
-		TP_ARGS(id, ts, type, age, func),
+			unsigned int type, unsigned int age, void *func,
+			enum kgsl_priority prio),
+		TP_ARGS(id, ts, type, age, func, prio),
 		TP_STRUCT__entry(
 			__field(unsigned int, id)
 			__field(unsigned int, ts)
 			__field(unsigned int, type)
 			__field(unsigned int, age)
 			__field(void *, func)
+			__field(enum kgsl_priority, prio)
 		),
 		TP_fast_assign(
 			__entry->id = id;
@@ -980,12 +914,14 @@ TRACE_EVENT(kgsl_fire_event,
 			__entry->type = type;
 			__entry->age = age;
 			__entry->func = func;
+			__entry->prio = prio;
 		),
 		TP_printk(
-			"ctx=%u ts=%u type=%s age=%u cb=%pF",
+			"ctx=%u ts=%u type=%s age=%u cb=%pF prio=%s",
 			__entry->id, __entry->ts,
 			__print_symbolic(__entry->type, KGSL_EVENT_TYPES),
-			__entry->age, __entry->func)
+			__entry->age, __entry->func,
+			prio_to_string(__entry->prio))
 );
 
 TRACE_EVENT(kgsl_active_count,

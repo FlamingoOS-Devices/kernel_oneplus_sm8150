@@ -31,7 +31,6 @@
 #include "sde_formats.h"
 #include "sde_hw_sspp.h"
 #include "sde_hw_catalog_format.h"
-#include "sde_trace.h"
 #include "sde_crtc.h"
 #include "sde_vbif.h"
 #include "sde_plane.h"
@@ -432,10 +431,6 @@ static void _sde_plane_set_qos_lut(struct drm_plane *plane,
 
 	psde->pipe_qos_cfg.creq_lut = qos_lut;
 
-	trace_sde_perf_set_qos_luts(psde->pipe - SSPP_VIG0,
-			(fmt) ? fmt->base.pixel_format : 0,
-			psde->is_rt_pipe, total_fl, qos_lut, lut_usage);
-
 	SDE_DEBUG("plane%u: pnum:%d fmt: %4.4s rt:%d fl:%u lut:0x%llx\n",
 			plane->base.id,
 			psde->pipe - SSPP_VIG0,
@@ -503,12 +498,6 @@ static void _sde_plane_set_danger_lut(struct drm_plane *plane,
 
 	psde->pipe_qos_cfg.danger_lut = danger_lut;
 	psde->pipe_qos_cfg.safe_lut = safe_lut;
-
-	trace_sde_perf_set_danger_luts(psde->pipe - SSPP_VIG0,
-			(fmt) ? fmt->base.pixel_format : 0,
-			(fmt) ? fmt->fetch_mode : 0,
-			psde->pipe_qos_cfg.danger_lut,
-			psde->pipe_qos_cfg.safe_lut);
 
 	SDE_DEBUG("plane%u: pnum:%d fmt:%4.4s mode:%d fl:%d luts[0x%x,0x%x]\n",
 		plane->base.id,
@@ -3900,6 +3889,7 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb;
 	struct sde_rect src, dst;
+	bool is_rt;
 	bool q16_data = true;
 	int idx;
 
@@ -4044,12 +4034,17 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 
 	_sde_plane_set_scanout(plane, pstate, &psde->pipe_cfg, fb);
 
+	is_rt = sde_crtc_get_client_type(crtc) != NRT_CLIENT;
+	if (is_rt != psde->is_rt_pipe) {
+		psde->is_rt_pipe = is_rt;
+		pstate->dirty |= SDE_PLANE_DIRTY_QOS;
+	}
+
 	/* early out if nothing dirty */
 	if (!pstate->dirty)
 		return 0;
 	pstate->pending = true;
 
-	psde->is_rt_pipe = (sde_crtc_get_client_type(crtc) != NRT_CLIENT);
 	_sde_plane_set_qos_ctrl(plane, false, SDE_PLANE_QOS_PANIC_CTRL);
 
 	/* update secure session flag */
@@ -4258,8 +4253,11 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 				&psde->sharp_cfg);
 	}
 
-	_sde_plane_set_qos_lut(plane, fb);
-	_sde_plane_set_danger_lut(plane, fb);
+	if (pstate->dirty & (SDE_PLANE_DIRTY_QOS | SDE_PLANE_DIRTY_RECTS |
+			     SDE_PLANE_DIRTY_FORMAT)) {
+		_sde_plane_set_qos_lut(plane, fb);
+		_sde_plane_set_danger_lut(plane, fb);
+	}
 
 	if (plane->type != DRM_PLANE_TYPE_CURSOR) {
 		_sde_plane_set_qos_ctrl(plane, true, SDE_PLANE_QOS_PANIC_CTRL);
@@ -4268,7 +4266,8 @@ static int sde_plane_sspp_atomic_update(struct drm_plane *plane,
 			_sde_plane_set_ts_prefill(plane, pstate);
 	}
 
-	_sde_plane_set_qos_remap(plane);
+	if (pstate->dirty & SDE_PLANE_DIRTY_QOS)
+		_sde_plane_set_qos_remap(plane);
 
 	/* clear dirty */
 	pstate->dirty = 0x0;

@@ -51,7 +51,6 @@
 #include "soc/qcom/secure_buffer.h"
 
 #define CREATE_TRACE_POINTS
-#include "sde_trace.h"
 
 /* defines for secure channel call */
 #define MEM_PROTECT_SD_CTRL_SWITCH 0x18
@@ -80,6 +79,8 @@ static const char * const iommu_ports[] = {
 
 #define SDE_KMS_MODESET_LOCK_TIMEOUT_US 500
 #define SDE_KMS_MODESET_LOCK_MAX_TRIALS 20
+
+#define SDE_KMS_PM_QOS_CPU_DMA_LATENCY 300
 
 /**
  * sdecustom - enable certain driver customizations for sde clients
@@ -366,20 +367,12 @@ static void _sde_debugfs_destroy(struct sde_kms *sde_kms)
 
 static int sde_kms_enable_vblank(struct msm_kms *kms, struct drm_crtc *crtc)
 {
-	int ret = 0;
-
-	SDE_ATRACE_BEGIN("sde_kms_enable_vblank");
-	ret = sde_crtc_vblank(crtc, true);
-	SDE_ATRACE_END("sde_kms_enable_vblank");
-
-	return ret;
+	return sde_crtc_vblank(crtc, true);
 }
 
 static void sde_kms_disable_vblank(struct msm_kms *kms, struct drm_crtc *crtc)
 {
-	SDE_ATRACE_BEGIN("sde_kms_disable_vblank");
 	sde_crtc_vblank(crtc, false);
-	SDE_ATRACE_END("sde_kms_disable_vblank");
 }
 
 static void sde_kms_wait_for_frame_transfer_complete(struct msm_kms *kms,
@@ -992,13 +985,12 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 		return;
 	priv = dev->dev_private;
 
-	SDE_ATRACE_BEGIN("prepare_commit");
 	rc = sde_power_resource_enable(&priv->phandle, sde_kms->core_client,
 			true);
 	if (rc) {
 		SDE_ERROR("failed to enable power resource %d\n", rc);
 		SDE_EVT32(rc, SDE_EVTLOG_ERROR);
-		goto end;
+		return;
 	}
 
 	if (sde_kms->first_kickoff) {
@@ -1023,8 +1015,6 @@ static void sde_kms_prepare_commit(struct msm_kms *kms,
 	 * transitions prepare below if any transtions is required.
 	 */
 	sde_kms_prepare_secure_transition(kms, state);
-end:
-	SDE_ATRACE_END("prepare_commit");
 }
 
 static void sde_kms_commit(struct msm_kms *kms,
@@ -1044,7 +1034,6 @@ static void sde_kms_commit(struct msm_kms *kms,
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("sde_kms_commit");
 	for_each_crtc_in_state(old_state, crtc, old_crtc_state, i) {
 		if (crtc->state->active) {
 			SDE_EVT32(DRMID(crtc));
@@ -1052,7 +1041,6 @@ static void sde_kms_commit(struct msm_kms *kms,
 		}
 	}
 
-	SDE_ATRACE_END("sde_kms_commit");
 }
 
 void sde_kms_release_splash_resource(struct sde_kms *sde_kms,
@@ -1135,7 +1123,6 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("sde_kms_complete_commit");
 
 	for_each_crtc_in_state(old_state, crtc, old_crtc_state, i) {
 		sde_crtc_complete_commit(crtc, old_crtc_state);
@@ -1175,7 +1162,6 @@ static void sde_kms_complete_commit(struct msm_kms *kms,
 		sde_kms_release_splash_resource(sde_kms, crtc);
 
 	SDE_EVT32_VERBOSE(SDE_EVTLOG_FUNC_EXIT);
-	SDE_ATRACE_END("sde_kms_complete_commit");
 }
 
 static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
@@ -1207,7 +1193,6 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("sde_kms_wait_for_commit_done");
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		if (encoder->crtc != crtc)
 			continue;
@@ -1226,7 +1211,6 @@ static void sde_kms_wait_for_commit_done(struct msm_kms *kms,
 		sde_crtc_complete_flip(crtc, NULL);
 	}
 
-	SDE_ATRACE_END("sde_ksm_wait_for_commit_done");
 }
 
 static void sde_kms_prepare_fence(struct msm_kms *kms,
@@ -1241,7 +1225,6 @@ static void sde_kms_prepare_fence(struct msm_kms *kms,
 		return;
 	}
 
-	SDE_ATRACE_BEGIN("sde_kms_prepare_fence");
 
 	/* old_state actually contains updated crtc pointers */
 	for_each_crtc_in_state(old_state, crtc, old_crtc_state, i) {
@@ -1249,7 +1232,6 @@ static void sde_kms_prepare_fence(struct msm_kms *kms,
 			sde_crtc_prepare_commit(crtc, old_crtc_state);
 	}
 
-	SDE_ATRACE_END("sde_kms_prepare_fence");
 }
 
 /**
@@ -2396,7 +2378,6 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 	sde_kms = to_sde_kms(kms);
 	dev = sde_kms->dev;
 
-	SDE_ATRACE_BEGIN("atomic_check");
 	if (sde_kms_is_suspend_blocked(dev)) {
 		SDE_DEBUG("suspended, skip atomic_check\n");
 		ret = -EBUSY;
@@ -2415,7 +2396,6 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 	 */
 	ret = sde_kms_check_secure_transition(kms, state);
 end:
-	SDE_ATRACE_END("atomic_check");
 	return ret;
 }
 
@@ -3189,6 +3169,40 @@ static void _sde_kms_set_lutdma_vbif_remap(struct sde_kms *sde_kms)
 	sde_vbif_set_qos_remap(sde_kms, &qos_params);
 }
 
+void sde_kms_update_pm_qos_irq_request(struct sde_kms *sde_kms,
+			 bool enable, bool skip_lock)
+{
+	struct msm_drm_private *priv;
+
+	if (!sde_kms->irq_num)
+		return;
+
+	priv = sde_kms->dev->dev_private;
+
+	if (!skip_lock)
+		mutex_lock(&priv->phandle.phandle_lock);
+
+	if (enable) {
+		u32 cpu_irq_latency = sde_kms->catalog->perf.cpu_irq_latency;
+		struct pm_qos_request *req = &sde_kms->pm_qos_irq_req;
+
+		if (pm_qos_request_active(req)) {
+			pm_qos_update_request(req, cpu_irq_latency);
+		} else {
+			req->type = PM_QOS_REQ_AFFINE_IRQ;
+			req->irq = sde_kms->irq_num;
+			pm_qos_add_request(req, PM_QOS_CPU_DMA_LATENCY,
+					   cpu_irq_latency);
+		}
+	} else if (!enable && pm_qos_request_active(&sde_kms->pm_qos_irq_req)) {
+		pm_qos_update_request(&sde_kms->pm_qos_irq_req,
+				PM_QOS_DEFAULT_VALUE);
+	}
+
+	if (!skip_lock)
+		mutex_unlock(&priv->phandle.phandle_lock);
+}
+
 static void sde_kms_handle_power_event(u32 event_type, void *usr)
 {
 	struct sde_kms *sde_kms = usr;
@@ -3207,7 +3221,9 @@ static void sde_kms_handle_power_event(u32 event_type, void *usr)
 		sde_kms_init_shared_hw(sde_kms);
 		_sde_kms_set_lutdma_vbif_remap(sde_kms);
 		sde_kms->first_kickoff = true;
+		sde_kms_update_pm_qos_irq_request(sde_kms, true, true);
 	} else if (event_type == SDE_POWER_EVENT_PRE_DISABLE) {
+		sde_kms_update_pm_qos_irq_request(sde_kms, false, true);
 		sde_irq_update(msm_kms, false);
 		sde_kms->first_kickoff = false;
 	}
@@ -3662,6 +3678,7 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 		sde_power_resource_enable(&priv->phandle,
 						sde_kms->core_client, false);
 	}
+
 	return 0;
 
 genpd_err:

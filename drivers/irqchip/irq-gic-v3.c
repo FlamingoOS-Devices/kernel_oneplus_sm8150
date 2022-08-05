@@ -113,7 +113,7 @@ static void gic_do_wait_for_rwp(void __iomem *base)
 {
 	u32 count = 1000000;	/* 1s! */
 
-	while (readl_relaxed_no_log(base + GICD_CTLR) & GICD_CTLR_RWP) {
+	while (readl_relaxed(base + GICD_CTLR) & GICD_CTLR_RWP) {
 		count--;
 		if (!count) {
 			pr_err_ratelimited("RWP timeout, gone fishing\n");
@@ -231,7 +231,7 @@ static int gic_peek_irq(struct irq_data *d, u32 offset)
 	else
 		base = gic_data.dist_base;
 
-	return !!(readl_relaxed_no_log
+	return !!(readl_relaxed
 		(base + offset + (gic_irq(d) / 32) * 4) & mask);
 }
 
@@ -542,7 +542,7 @@ static int __gic_populate_rdist(struct redist_region *region, void __iomem *ptr)
 		gic_data_rdist_rd_base() = ptr;
 		gic_data_rdist()->phys_base = region->phys_base + offset;
 
-		pr_info("CPU%d: found redistributor %lx region %d:%pa\n",
+		pr_debug("CPU%d: found redistributor %lx region %d:%pa\n",
 			smp_processor_id(), mpidr,
 			(int)(region - gic_data.redist_regions),
 			&gic_data_rdist()->phys_base);

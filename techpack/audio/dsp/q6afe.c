@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
+#undef pr_info
+#undef pr_debug
+
 #include <linux/slab.h>
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
@@ -1579,7 +1583,7 @@ static void afe_send_custom_topology(void)
 	this_afe.set_custom_topology = 0;
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_err("%s cal_block not found!!\n", __func__);
+		pr_debug("%s cal_block not found!!\n", __func__);
 		goto unlock;
 	}
 

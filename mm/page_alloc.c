@@ -69,6 +69,8 @@
 #include <linux/lockdep.h>
 #include <linux/nmi.h>
 #include <linux/psi.h>
+#include <linux/cpu_input_boost.h>
+#include <linux/devfreq_boost.h>
 
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
@@ -4163,6 +4165,28 @@ retry_cpuset:
 		if (page)
 			goto got_pg;
 
+		 if (order >= pageblock_order && (gfp_mask & __GFP_IO)) {
+			/*
+			 * If allocating entire pageblock(s) and compaction
+			 * failed because all zones are below low watermarks
+			 * or is prohibited because it recently failed at this
+			 * order, fail immediately.
+			 *
+			 * Reclaim is
+			 *  - potentially very expensive because zones are far
+			 *    below their low watermarks or this is part of very
+			 *    bursty high order allocations,
+			 *  - not guaranteed to help because isolate_freepages()
+			 *    may not iterate over freed pages as part of its
+			 *    linear scan, and
+			 *  - unlikely to make entire pageblocks free on its
+			 *    own.
+			 */
+			if (compact_result == COMPACT_SKIPPED ||
+			    compact_result == COMPACT_DEFERRED)
+				goto nopage;
+		}
+
 		/*
 		 * Checks for costly allocations with __GFP_NORETRY, which
 		 * includes some THP page fault allocations
@@ -4203,6 +4227,10 @@ retry:
 	if (gfp_mask & __GFP_KSWAPD_RECLAIM)
 		wake_all_kswapds(order, ac);
 
+	/* Boost when memory is low so allocation latency doesn't get too bad */
+	cpu_input_boost_kick_max(100);
+	devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 100);
+
 	reserve_flags = __gfp_pfmemalloc_flags(gfp_mask);
 	if (reserve_flags)
 		alloc_flags = reserve_flags;
@@ -4233,6 +4261,10 @@ retry:
 	if (fatal_signal_pending(current) && !(gfp_mask & __GFP_NOFAIL) &&
 			(gfp_mask & __GFP_FS))
 		goto nopage;
+
+	/* Boost when memory is low so allocation latency doesn't get too bad */
+	cpu_input_boost_kick_max(250);
+	devfreq_boost_kick_max(DEVFREQ_CPU_LLCC_DDR_BW, 250);
 
 	/* Try direct reclaim and then allocating */
 	if (!used_vmpressure)

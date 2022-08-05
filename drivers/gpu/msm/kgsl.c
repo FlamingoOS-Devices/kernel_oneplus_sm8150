@@ -4727,8 +4727,6 @@ static void kgsl_send_uevent_notify(struct kgsl_device *desc, char *comm,
 	kfree(envp[0]);
 }
 
-static int current_pid = -1;
-
 static unsigned long
 kgsl_get_unmapped_area(struct file *file, unsigned long addr,
 			unsigned long len, unsigned long pgoff,
@@ -4764,27 +4762,11 @@ kgsl_get_unmapped_area(struct file *file, unsigned long addr,
 	} else {
 		val = _get_svm_area(private, entry, addr, len, flags);
 		if (IS_ERR_VALUE(val)) {
-			struct vm_area_struct *vma;
-			struct mm_struct *mm = current->mm;
-			unsigned long largest_gap_cpu = UINT_MAX;
-			unsigned long largest_gap_gpu = UINT_MAX;
-
 			KGSL_DRV_ERR_RATELIMIT(device,
 				"_get_svm_area: pid %d mmap_base %lx addr %lx pgoff %lx len %ld failed error %d\n",
 				pid_nr(private->pid),
 				current->mm->mmap_base, addr,
 				pgoff, len, (int) val);
-
-			if (!RB_EMPTY_ROOT(&mm->mm_rb)) {
-				vma = rb_entry(mm->mm_rb.rb_node, struct vm_area_struct, vm_rb);
-			}
-
-			if (private->pid != current_pid) {
-				current_pid = private->pid;
-				kgsl_send_uevent_notify(device, current->group_leader->comm,
-					len, mm->total_vm, largest_gap_cpu, largest_gap_gpu);
-			}
-
 		}
 	}
 

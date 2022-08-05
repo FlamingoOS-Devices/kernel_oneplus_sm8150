@@ -650,8 +650,7 @@ static int queue_pages_test_walk(unsigned long start, unsigned long end,
 
 	if (flags & MPOL_MF_LAZY) {
 		/* Similar to task_numa_work, skip inaccessible VMAs */
-		if (!is_vm_hugetlb_page(vma) &&
-			(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE)) &&
+		if (!is_vm_hugetlb_page(vma) && vma_is_accessible(vma) &&
 			!(vma->vm_flags & VM_MIXEDMAP))
 			change_prot_numa(vma, start, endvma);
 		return 1;
@@ -2086,9 +2085,19 @@ alloc_pages_vma(gfp_t gfp, int order, struct vm_area_struct *vma,
 			 * providing THP originated from the local
 			 * node in such case.
 			 */
-			if (!(gfp & __GFP_DIRECT_RECLAIM))
-				gfp |= __GFP_THISNODE;
+			if (!(gfp & __GFP_DIRECT_RECLAIM)) {
+				gfp |= __GFP_THISNODE | __GFP_NORETRY;
 			page = __alloc_pages_node(hpage_node, gfp, order);
+			}
+			/*
+			 * If hugepage allocations are configured to always
+			 * synchronous compact or the vma has been madvised
+			 * to prefer hugepage backing, retry allowing remote
+			 * memory with both reclaim and compact as well.
+			 */
+			if (!page && (gfp & __GFP_DIRECT_RECLAIM))
+			page = __alloc_pages_node(hpage_node, gfp, order);
+
 			goto out;
 		}
 	}

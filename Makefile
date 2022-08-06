@@ -500,6 +500,7 @@ ifneq ($(KBUILD_SRC),)
 endif
 
 ifeq ($(cc-name),clang)
+CLANG_FLAGS += -fno-builtin-stpcpy
 ifneq ($(CROSS_COMPILE),)
 CLANG_TRIPLE	?= $(CROSS_COMPILE)
 CLANG_FLAGS	+= --target=$(notdir $(CLANG_TRIPLE:%-=%))

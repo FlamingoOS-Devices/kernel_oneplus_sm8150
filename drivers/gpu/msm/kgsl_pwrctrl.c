@@ -29,10 +29,6 @@
 #include "kgsl_trace.h"
 #include "kgsl_gmu_core.h"
 
-#ifdef CONFIG_HOUSTON
-#include <oneplus/houston/houston_helper.h>
-#endif
-
 #define KGSL_PWRFLAGS_POWER_ON 0
 #define KGSL_PWRFLAGS_CLK_ON   1
 #define KGSL_PWRFLAGS_AXI_ON   2
@@ -2367,9 +2363,6 @@ int kgsl_pwrctrl_init(struct kgsl_device *device)
 
 	of_property_read_string_array(pdev->dev.of_node, "tzone-names",
 		pwr->tzone_names, KGSL_MAX_TZONE_NAMES);
-#ifdef CONFIG_HOUSTON
-	ht_register_kgsl_pwrctrl(pwr);
-#endif
 
 	/*
 	 * Cx ipeak client support, default value of Cx Ipeak GPU freq

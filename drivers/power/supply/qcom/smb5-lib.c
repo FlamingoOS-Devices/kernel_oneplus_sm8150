@@ -4343,9 +4343,9 @@ int smblib_get_prop_connector_health(struct smb_charger *chg)
 	return POWER_SUPPLY_HEALTH_COOL;
 }
 
-#define PD_PANELON_CURRENT_UA		2000000
+#define PD_PANELON_CURRENT_UA		3000000
 #define PD_PANELOFF_CURRENT_UA		3000000
-#define DCP_PANELOFF_CURRENT_UA		1800000
+#define DCP_PANELOFF_CURRENT_UA		2000000
 static int get_rp_based_dcp_current(struct smb_charger *chg, int typec_mode)
 {
 	int rp_ua;
@@ -4364,7 +4364,7 @@ static int get_rp_based_dcp_current(struct smb_charger *chg, int typec_mode)
 		if (chg->oem_lcd_is_on)
 			rp_ua = DCP_CURRENT_UA;
 		else
-			rp_ua = chg->disable_ctrl_current > 0 ? DCP_CURRENT_UA : DCP_PANELOFF_CURRENT_UA;
+			rp_ua = DCP_PANELOFF_CURRENT_UA;
 	}
 
 	return rp_ua;
@@ -7979,11 +7979,6 @@ static void set_usb_switch(struct smb_charger *chg, bool enable)
 		return;
 	}
 
-	if (chg->pd_active) {
-		pr_info("%s:pd_active return\n", __func__);
-		return;
-	}
-
 	if (enable) {
 		pr_debug("switch on fastchg\n");
 		chg->switch_on_fastchg = true;
@@ -8011,6 +8006,11 @@ static void set_usb_switch(struct smb_charger *chg, bool enable)
 			schedule_delayed_work(&chg->rechk_sw_dsh_work,
 					msecs_to_jiffies(retrger_time));
 	} else {
+		if (!chg->usb_psy_desc.type == POWER_SUPPLY_TYPE_DASH) {
+			pr_err("OP FIXUP: power early return\n");
+			return;
+		}
+
 		pr_debug("switch off fastchg\n");
 		chg->switch_on_fastchg = false;
 		update_disconnect_pd_status(false);

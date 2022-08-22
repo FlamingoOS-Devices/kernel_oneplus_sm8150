@@ -268,7 +268,7 @@ struct update_pre_capacity_data {
 	int suspend_time;
 };
 static struct update_pre_capacity_data update_pre_capacity_data;
-static int __debug_temp_mask;
+static int __debug_temp_mask = 0;
 module_param_named(
 	debug_temp_mask, __debug_temp_mask, int, 0600
 );
@@ -1113,8 +1113,9 @@ static struct external_battery_gauge bq27541_batt_gauge = {
 	.set_lcd_off_status         = bq27541_set_lcd_off_status,
 	.fast_chg_started_status    = bq27541_get_fastchg_started_status,
 };
-#define BATTERY_SOC_UPDATE_MS 12000
-#define LOW_BAT_SOC_UPDATE_MS 6000
+
+#define BATTERY_SOC_UPDATE_MS 2000
+#define LOW_BAT_SOC_UPDATE_MS 2000
 
 #define RESUME_SCHDULE_SOC_UPDATE_WORK_MS 60000
 

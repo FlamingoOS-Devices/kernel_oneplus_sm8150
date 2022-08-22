@@ -2509,8 +2509,8 @@ done:
 out:
 	if (!chip->esr_fast_calib || is_debug_batt_id(fg)) {
 		/* If it is debug battery, then disable ESR fast calibration */
-		fg_gen4_esr_fast_calib_config(chip, false);
 		chip->esr_fast_calib = false;
+		fg_gen4_esr_fast_calib_config(chip, false);
 	}
 
 	if (chip->dt.multi_profile_load && rc < 0)
@@ -4416,15 +4416,6 @@ static int fg_psy_get_property(struct power_supply *psy,
 		} else
 				pval->intval = -400;
 		break;
-	case POWER_SUPPLY_PROP_BATTERY_HEALTH:
-		if (fg->use_external_fg && external_fg
-				&& external_fg->get_batt_health)
-			pval->intval = external_fg->get_batt_health();
-		else if (get_extern_fg_regist_done() == false)
-			pval->intval = -1;
-		else
-			pval->intval = -1;
-		break;
 	case POWER_SUPPLY_PROP_RESISTANCE:
 		rc = fg_get_battery_resistance(fg, &pval->intval);
 		break;
@@ -4456,31 +4447,14 @@ static int fg_psy_get_property(struct power_supply *psy,
 		pval->intval = chip->cl->init_cap_uah;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		if (!get_extern_fg_regist_done() && get_extern_bq_present())
-			pval->intval = -EINVAL;
-		else if (fg->use_external_fg && external_fg && external_fg->get_batt_full_chg_capacity)
-			pval->intval = external_fg->get_batt_full_chg_capacity();
-		else {
-			rc = fg_gen4_get_learned_capacity(chip, &temp);
-			if (!rc)
-				pval->intval = (int)temp;
-		}
-		break;
-	case POWER_SUPPLY_PROP_REMAINING_CAPACITY:
-		if (!get_extern_fg_regist_done() && get_extern_bq_present())
-			pval->intval = DEFALUT_BATT_TEMP;
-		else if (fg->use_external_fg && external_fg && external_fg->get_batt_remaining_capacity)
-			pval->intval = external_fg->get_batt_remaining_capacity();
-		else
-			pval->intval = -EINVAL;
+		rc = fg_gen4_get_learned_capacity(chip, &temp);
+		if (!rc)
+			pval->intval = (int)temp;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		rc = fg_gen4_get_nominal_capacity(chip, &temp);
-		if (rc)
-			pval->intval = -EINVAL;
-		else
+		if (!rc)
 			pval->intval = (int)temp;
-
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
 		rc = fg_gen4_get_charge_counter(chip, &pval->intval);
@@ -4742,8 +4716,6 @@ static enum power_supply_property fg_psy_props[] = {
 	POWER_SUPPLY_PROP_CALIBRATE,
 	POWER_SUPPLY_PROP_SET_ALLOW_READ_EXTERN_FG_IIC,
 	POWER_SUPPLY_PROP_BQ_SOC,
-	POWER_SUPPLY_PROP_BATTERY_HEALTH,
-	POWER_SUPPLY_PROP_REMAINING_CAPACITY,
 };
 
 static const struct power_supply_desc fg_psy_desc = {
@@ -4900,17 +4872,11 @@ static int fg_gen4_delta_esr_irq_en_cb(struct votable *votable, void *data,
 		return 0;
 
 	if (enable) {
-		if (!esr_irq_is_en) {
-			esr_irq_is_en = true;
-			enable_irq(fg->irqs[ESR_DELTA_IRQ].irq);
-			enable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
-		}
+		enable_irq(fg->irqs[ESR_DELTA_IRQ].irq);
+		enable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
 	} else {
-		if (esr_irq_is_en) {
-			esr_irq_is_en = false;
-			disable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
-			disable_irq_nosync(fg->irqs[ESR_DELTA_IRQ].irq);
-		}
+		disable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
+		disable_irq_nosync(fg->irqs[ESR_DELTA_IRQ].irq);
 	}
 
 	return 0;
@@ -4925,11 +4891,17 @@ static int fg_gen4_mem_attn_irq_en_cb(struct votable *votable, void *data,
 		return 0;
 
 	if (enable) {
-		enable_irq(fg->irqs[MEM_ATTN_IRQ].irq);
-		enable_irq_wake(fg->irqs[MEM_ATTN_IRQ].irq);
+		if (!esr_irq_is_en) {
+			esr_irq_is_en = true;
+			enable_irq(fg->irqs[ESR_DELTA_IRQ].irq);
+			enable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
+		}
 	} else {
-		disable_irq_wake(fg->irqs[MEM_ATTN_IRQ].irq);
-		disable_irq_nosync(fg->irqs[MEM_ATTN_IRQ].irq);
+		if (esr_irq_is_en) {
+			esr_irq_is_en = false;
+			disable_irq_wake(fg->irqs[ESR_DELTA_IRQ].irq);
+			disable_irq_nosync(fg->irqs[ESR_DELTA_IRQ].irq);
+		}
 	}
 
 	fg_dbg(fg, FG_STATUS, "%sabled mem_attn irq\n", enable ? "en" : "dis");

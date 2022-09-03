@@ -994,11 +994,9 @@ static int qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 			pr_info("Power-Key UP\n");
 			schedule_work(&pon->up_work);
 			cancel_delayed_work(&pon->press_work);
-			cancel_delayed_work(&pon->press_pwr);
 		} else {
 			pr_info("Power-Key DOWN\n");
 			schedule_delayed_work(&pon->press_work, msecs_to_jiffies(4000));
-			schedule_delayed_work(&pon->press_pwr, msecs_to_jiffies(6000));
 		}
 		break;
 	case PON_RESIN:
@@ -1273,37 +1271,6 @@ static void press_work_func(struct work_struct *work)
 err_return:
 	return;
 }
-
-static void press_pwr_func(struct work_struct *work)
-{
-	int rc;
-	uint pon_rt_sts = 0;
-	struct qpnp_pon_config *cfg;
-	struct qpnp_pon *pon =
-		container_of(work, struct qpnp_pon, press_pwr.work);
-
-	cfg = qpnp_get_cfg(pon, PON_KPDPWR);
-	if (!cfg) {
-		dev_err(pon->dev, "Invalid config pointer\n");
-		goto err_return;
-	}
-	/* check the RT status to get the current status of the line */
-	rc = regmap_read(pon->regmap, QPNP_PON_RT_STS(pon), &pon_rt_sts);
-	if (rc) {
-		dev_err(pon->dev, "Unable to read PON RT status\n");
-		goto err_return;
-	}
-
-	if ((pon_rt_sts & QPNP_PON_KPDPWR_N_SET) == 1) {
-		qpnp_powerkey_state_check(pon, 1);
-		dev_err(pon->dev, "after 8s Power-Key is still DOWN\n");
-	}
-	msleep(20);
-	sys_sync();
-err_return:
-	return;
-}
-
 
 static irqreturn_t qpnp_resin_bark_irq(int irq, void *_pon)
 {
@@ -2835,7 +2802,6 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
 	INIT_DELAYED_WORK(&pon->press_work, press_work_func);
-	INIT_DELAYED_WORK(&pon->press_pwr, press_pwr_func);
 	INIT_WORK(&pon->up_work, up_work_func);
 
 	rc = qpnp_pon_parse_dt_power_off_config(pon);

@@ -160,8 +160,7 @@ bool irq_can_set_affinity_usr(unsigned int irq)
 	struct irq_desc *desc = irq_to_desc(irq);
 
 	return __irq_can_set_affinity(desc) &&
-		!irqd_affinity_is_managed(&desc->irq_data) &&
-		!irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL);
+		!irqd_affinity_is_managed(&desc->irq_data);
 }
 
 /**
@@ -1252,25 +1251,6 @@ void setup_perf_irq_locked(struct irq_desc *desc, unsigned int perf_flag)
 	raw_spin_unlock(&perf_irqs_lock);
 }
 
-void irq_set_perf_affinity(unsigned int irq, unsigned int perf_flag)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-	unsigned long flags;
-
-	if (!desc)
-		return;
-
-	raw_spin_lock_irqsave(&desc->lock, flags);
-	if (desc->action) {
-		desc->action->flags |= perf_flag;
-		irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
-		setup_perf_irq_locked(desc, perf_flag);
-	} else {
-		WARN(1, "perf affine: action not set for IRQ%d\n", irq);
-	}
-	raw_spin_unlock_irqrestore(&desc->lock, flags);
-}
-
 void unaffine_perf_irqs(void)
 {
 	struct irq_desc_list *data;
@@ -1569,12 +1549,6 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			irqd_set(&desc->irq_data, IRQD_NO_BALANCING);
 		}
 
-		if (new->flags & (IRQF_PERF_AFFINE | IRQF_PRIME_AFFINE)) {
-			affine_one_perf_thread(new);
-			irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
-			*old_ptr = new;
-		}
-
 		if (irq_settings_can_autoenable(desc)) {
 			irq_startup(desc, IRQ_RESEND, IRQ_START_COND);
 		} else {
@@ -1599,8 +1573,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 				irq, omsk, nmsk);
 	}
 
-	if (!irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL))
-		*old_ptr = new;
+	*old_ptr = new;
 
 	irq_pm_install_action(desc, new);
 
@@ -1743,20 +1716,6 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		if (action->dev_id == dev_id)
 			break;
 		action_ptr = &action->next;
-	}
-
-	if (irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL)) {
-		struct irq_desc_list *data;
-
-		raw_spin_lock(&perf_irqs_lock);
-		list_for_each_entry(data, &perf_crit_irqs, list) {
-			if (data->desc == desc) {
-				list_del(&data->list);
-				kfree(data);
-				break;
-			}
-		}
-		raw_spin_unlock(&perf_irqs_lock);
 	}
 
 	/* Found it - now remove it from the list of entries: */

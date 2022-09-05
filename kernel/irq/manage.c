@@ -160,8 +160,7 @@ bool irq_can_set_affinity_usr(unsigned int irq)
 	struct irq_desc *desc = irq_to_desc(irq);
 
 	return __irq_can_set_affinity(desc) &&
-		!irqd_affinity_is_managed(&desc->irq_data) &&
-		!irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL);
+		!irqd_affinity_is_managed(&desc->irq_data);
 }
 
 /**
@@ -182,9 +181,9 @@ void irq_set_thread_affinity(struct irq_desc *desc)
 			set_bit(IRQTF_AFFINITY, &action->thread_flags);
 }
 
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
 static void irq_validate_effective_affinity(struct irq_data *data)
 {
-#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
 	const struct cpumask *m = irq_data_get_effective_affinity_mask(data);
 	struct irq_chip *chip = irq_data_get_irq_chip(data);
 
@@ -192,8 +191,18 @@ static void irq_validate_effective_affinity(struct irq_data *data)
 		return;
 	pr_warn_once("irq_chip %s did not update eff. affinity mask of irq %u\n",
 		     chip->name, data->irq);
-#endif
 }
+
+static inline void irq_init_effective_affinity(struct irq_data *data,
+					       const struct cpumask *mask)
+{
+	cpumask_copy(irq_data_get_effective_affinity_mask(data), mask);
+}
+#else
+static inline void irq_validate_effective_affinity(struct irq_data *data) { }
+static inline void irq_init_effective_affinity(struct irq_data *data,
+					       const struct cpumask *mask) { }
+#endif
 
 int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 			bool force)
@@ -219,6 +228,30 @@ int irq_do_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	return ret;
 }
 
+static bool irq_set_affinity_deactivated(struct irq_data *data,
+					 const struct cpumask *mask, bool force)
+{
+	struct irq_desc *desc = irq_data_to_desc(data);
+
+	/*
+	 * Handle irq chips which can handle affinity only in activated
+	 * state correctly
+	 *
+	 * If the interrupt is not yet activated, just store the affinity
+	 * mask and do not call the chip driver at all. On activation the
+	 * driver has to make sure anyway that the interrupt is in a
+	 * useable state so startup works.
+	 */
+	if (!IS_ENABLED(CONFIG_IRQ_DOMAIN_HIERARCHY) ||
+	    irqd_is_activated(data) || !irqd_affinity_on_activate(data))
+		return false;
+
+	cpumask_copy(desc->irq_common_data.affinity, mask);
+	irq_init_effective_affinity(data, mask);
+	irqd_set(data, IRQD_AFFINITY_SET);
+	return true;
+}
+
 int irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask,
 			    bool force)
 {
@@ -228,6 +261,9 @@ int irq_set_affinity_locked(struct irq_data *data, const struct cpumask *mask,
 
 	if (!chip || !chip->irq_set_affinity)
 		return -EINVAL;
+
+	if (irq_set_affinity_deactivated(data, mask, force))
+		return 0;
 
 	if (irq_can_move_pcntxt(data)) {
 		ret = irq_do_set_affinity(data, mask, force);
@@ -893,11 +929,15 @@ irq_forced_thread_fn(struct irq_desc *desc, struct irqaction *action)
 	irqreturn_t ret;
 
 	local_bh_disable();
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT_BASE))
+		local_irq_disable();
 	ret = action->thread_fn(action->irq, action->dev_id);
 	if (ret == IRQ_HANDLED)
 		atomic_inc(&desc->threads_handled);
 
 	irq_finalize_oneshot(desc, action);
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT_BASE))
+		local_irq_enable();
 	local_bh_enable();
 	return ret;
 }
@@ -1215,25 +1255,6 @@ void setup_perf_irq_locked(struct irq_desc *desc, unsigned int perf_flag)
 	raw_spin_unlock(&perf_irqs_lock);
 }
 
-void irq_set_perf_affinity(unsigned int irq, unsigned int perf_flag)
-{
-	struct irq_desc *desc = irq_to_desc(irq);
-	unsigned long flags;
-
-	if (!desc)
-		return;
-
-	raw_spin_lock_irqsave(&desc->lock, flags);
-	if (desc->action) {
-		desc->action->flags |= perf_flag;
-		irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
-		setup_perf_irq_locked(desc, perf_flag);
-	} else {
-		WARN(1, "perf affine: action not set for IRQ%d\n", irq);
-	}
-	raw_spin_unlock_irqrestore(&desc->lock, flags);
-}
-
 void unaffine_perf_irqs(void)
 {
 	struct irq_desc_list *data;
@@ -1532,12 +1553,6 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			irqd_set(&desc->irq_data, IRQD_NO_BALANCING);
 		}
 
-		if (new->flags & (IRQF_PERF_AFFINE | IRQF_PRIME_AFFINE)) {
-			affine_one_perf_thread(new);
-			irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
-			*old_ptr = new;
-		}
-
 		if (irq_settings_can_autoenable(desc)) {
 			irq_startup(desc, IRQ_RESEND, IRQ_START_COND);
 		} else {
@@ -1562,8 +1577,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 				irq, omsk, nmsk);
 	}
 
-	if (!irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL))
-		*old_ptr = new;
+	*old_ptr = new;
 
 	irq_pm_install_action(desc, new);
 
@@ -1706,20 +1720,6 @@ static struct irqaction *__free_irq(unsigned int irq, void *dev_id)
 		if (action->dev_id == dev_id)
 			break;
 		action_ptr = &action->next;
-	}
-
-	if (irqd_has_set(&desc->irq_data, IRQD_PERF_CRITICAL)) {
-		struct irq_desc_list *data;
-
-		raw_spin_lock(&perf_irqs_lock);
-		list_for_each_entry(data, &perf_crit_irqs, list) {
-			if (data->desc == desc) {
-				list_del(&data->list);
-				kfree(data);
-				break;
-			}
-		}
-		raw_spin_unlock(&perf_irqs_lock);
 	}
 
 	/* Found it - now remove it from the list of entries: */

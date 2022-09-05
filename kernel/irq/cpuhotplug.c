@@ -69,9 +69,6 @@ static bool migrate_one_irq(struct irq_desc *desc)
 		return false;
 	}
 
-	if (irqd_has_set(d, IRQD_PERF_CRITICAL))
-		return false;
-
 	/*
 	 * No move required, if:
 	 * - Interrupt is per cpu
@@ -218,9 +215,6 @@ static void irq_restore_affinity_of_irq(struct irq_desc *desc, unsigned int cpu)
 {
 	struct irq_data *data = irq_desc_get_irq_data(desc);
 	const struct cpumask *affinity = irq_data_get_affinity_mask(data);
-
-	if (irqd_has_set(data, IRQD_PERF_CRITICAL))
-		return;
 
 	if (!irqd_affinity_is_managed(data) || !desc->action ||
 	    !irq_data_get_irq_chip(data) || !cpumask_test_cpu(cpu, affinity))

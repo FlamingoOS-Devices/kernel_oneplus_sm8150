@@ -1583,6 +1583,7 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
 	},
+	#ifndef CONFIG_ANDROID_SIMPLE_LMK
 	{
 		.procname       = "reap_mem_on_sigkill",
 		.data           = &sysctl_reap_mem_on_sigkill,
@@ -1590,6 +1591,7 @@ static struct ctl_table vm_table[] = {
 		.mode           = 0644,
 		.proc_handler   = proc_dointvec,
 	},
+	#endif
 	{
 		.procname	= "overcommit_ratio",
 		.data		= &sysctl_overcommit_ratio,

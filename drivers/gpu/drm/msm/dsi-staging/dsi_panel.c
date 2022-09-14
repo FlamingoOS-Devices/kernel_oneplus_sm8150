@@ -38,6 +38,7 @@
 #include "dsi_drm.h"
 #include "dsi_display.h"
 #include "sde_crtc.h"
+#include "sde_hw_mdss.h"
 #include "sde_rm.h"
 /**
  * topology is currently defined by a set of following 3 values:
@@ -739,10 +740,11 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 	return rc;
 }
 
-int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
-				enum dsi_cmd_set_type type)
+int __dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type,
+				bool fod_usage)
 {
-	int rc = 0, i = 0;
+	int rc = 0, i = 0, wait_multi = 1000;
 	ssize_t len;
 	struct dsi_cmd_desc *cmds;
 	u32 count;
@@ -778,14 +780,29 @@ int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 			pr_err("failed to set cmds(%d), rc=%d\n", type, rc);
 			goto error;
 		}
+
+		if (fod_usage) {
+			if (panel->hw_type == DSI_PANEL_SAMSUNG_SOFEF03F_M)
+				wait_multi = 700;
+			else if (panel->hw_type == DSI_PANEL_SAMSUNG_S6E3FC2X01)
+				wait_multi = 500;
+		}
+
 		if (cmds->post_wait_ms)
-			usleep_range(cmds->post_wait_ms*1000,
-					((cmds->post_wait_ms*1000)+10));
+			usleep_range(cmds->post_wait_ms*wait_multi,
+					((cmds->post_wait_ms*wait_multi)+10));
 		cmds++;
 	}
 error:
 	return rc;
 }
+
+int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+				enum dsi_cmd_set_type type)
+{
+	return __dsi_panel_tx_cmd_set(panel, type, false);
+}
+
 
 static int dsi_panel_pinctrl_deinit(struct dsi_panel *panel)
 {
@@ -951,56 +968,48 @@ error:
 	return rc;
 }
 
-int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level)
+bool hbm_active;
+int hbm_level;
+static void set_hbm_mode(struct work_struct *work)
 {
-	int rc = 0;
-	u32 count;
-    struct dsi_display_mode *mode;
-
-	if (!panel || !panel->cur_mode) {
-		pr_err("Invalid params\n");
-		return -EINVAL;
-	}
+	struct dsi_panel *panel = get_main_display()->panel;
 
 	mutex_lock(&panel->panel_lock);
-
-    mode = panel->cur_mode;
-    switch (level) {
-    case 0:
-        count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_OFF].count;
-        if (!count) {
-            pr_err("This panel does not support HBM mode off.\n");
-            goto error;
-        } else {
-            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_OFF);
-			printk(KERN_DEBUG"When HBM OFF -->hbm_backight = %d panel->bl_config.bl_level =%d\n",panel->hbm_backlight,panel->bl_config.bl_level);
-			rc= dsi_panel_update_backlight(panel,panel->hbm_backlight);
-        }
-    break;
-
-    case 1:
-        count = mode->priv_info->cmd_sets[DSI_CMD_SET_HBM_ON_5].count;
-        if (!count) {
-            pr_err("This panel does not support HBM mode.\n");
-            goto error;
-        } else {
-            rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5);
-        }
-    break;
-    default:
-    break;
-
-    }
-    pr_debug("Set HBM Mode = %d\n", level);
-	if(level==5)
-	{
-		pr_debug("HBM == 5 for fingerprint\n");
+	switch (hbm_level) {
+		case 0:
+			if (!HBM_flag) {
+				dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_OFF);
+				pr_debug(
+					"When HBM OFF -->hbm_backight = %d panel->bl_config.bl_level =%d\n",
+					panel->hbm_backlight, panel->bl_config.bl_level);
+				dsi_panel_update_backlight(panel, panel->hbm_backlight);
+			}
+			break;
+		case 1:
+			__dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5, true);
+			break;
+		default:
+			break;
 	}
-
-error:
 	mutex_unlock(&panel->panel_lock);
 
-	return rc;
+	pr_debug("Set HBM Mode = %d\n", hbm_level);
+}
+
+DECLARE_WORK(hbm_work, set_hbm_mode);
+/*
+ * This function is used only for "op_friginer_print_hbm".
+ *
+ * As we are triggering hbm_work after dim layer is committed,
+ * remove the call here.
+ */
+int dsi_panel_op_set_hbm_mode(struct dsi_panel *panel, int level)
+{
+	hbm_active = !!level;
+
+	// queue_work(system_highpri_wq, &hbm_work);
+
+	return 0;
 }
 
 static int dsi_panel_update_pwm_backlight(struct dsi_panel *panel,
@@ -4648,7 +4657,6 @@ error:
 	return rc;
 }
 
-extern int oneplus_panel_status;
 int dsi_panel_set_lp1(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -4680,7 +4688,6 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		       panel->name, rc);
 
 	panel->need_power_on_backlight = true;
-	oneplus_panel_status = 3; // DISPLAY_POWER_DOZE
 
 exit:
 	mutex_unlock(&panel->panel_lock);
@@ -4704,7 +4711,6 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
 	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_LP2 cmd, rc=%d\n",
 		       panel->name, rc);
-	oneplus_panel_status = 4; // DISPLAY_POWER_DOZE_SUSPEND
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -4735,7 +4741,6 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (rc)
 		pr_err("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
-	oneplus_panel_status = 2; // DISPLAY_POWER_ON
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -5072,12 +5077,6 @@ int dsi_panel_post_switch(struct dsi_panel *panel)
 bool aod_fod_flag;
 bool aod_complete;
 bool real_aod_mode;
-
-extern bool oneplus_dimlayer_hbm_enable;
-bool backup_dimlayer_hbm = false;
-extern int oneplus_auth_status;
-extern int oneplus_dim_status;
-int backup_dim_status = 0;
 int dsi_panel_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -5121,21 +5120,7 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	}
 
 	panel->panel_initialized = true;
-	oneplus_panel_status = 2; // DISPLAY_POWER_ON
 	pr_debug("dsi_panel_enable aod_mode =%d\n",panel->aod_mode);
-
-	if (oneplus_auth_status == 2) {
-		backup_dimlayer_hbm = 0;
-		backup_dim_status = 0;
-	} else if (oneplus_auth_status == 1) {
-		backup_dimlayer_hbm = 1;
-		backup_dim_status = 1;
-	}
-	oneplus_dimlayer_hbm_enable = backup_dimlayer_hbm;
-	oneplus_dim_status = backup_dim_status;
-	if (oneplus_auth_status != 2)
-		pr_debug("Restore dim when panel goes on");
-	oneplus_auth_status = 0;
 
 	blank = MSM_DRM_BLANK_UNBLANK_CHARGE;
 	notifier_data.data = &blank;
@@ -5211,9 +5196,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 
 	/* Avoid sending panel off commands when ESD recovery is underway */
 	if (!atomic_read(&panel->esd_recovery_pending)) {
-		oneplus_dimlayer_hbm_enable = false;
-		oneplus_dim_status = 0;
-		pr_err("Kill dim when panel goes off");
+
 		HBM_flag = false;
 	if(panel->aod_mode==2){
 			panel->aod_status=1;
@@ -5247,7 +5230,6 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	}
 	panel->panel_initialized = false;
 	panel->power_mode = SDE_MODE_DPMS_OFF;
-	oneplus_panel_status = 0; // DISPLAY_POWER_OFF
 
 	mutex_unlock(&panel->panel_lock);
 	printk(KERN_ERR"dsi_panel_disable --\n");
@@ -5403,7 +5385,7 @@ int dsi_panel_set_hbm_mode(struct dsi_panel *panel, int level)
 			}
 			else {
 				HBM_flag = true;
-				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5);
+				__dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_HBM_ON_5, true);
 				pr_err("Send DSI_CMD_SET_HBM_ON_5 cmds.\n");
 			}
 			break;
@@ -6004,6 +5986,7 @@ int dsi_panel_tx_gamma_cmd_set(struct dsi_panel *panel,
 			pr_err("failed to set cmds(%d), rc=%d\n", type, rc);
 			goto error;
 		}
+
 		if (cmds->post_wait_ms)
 			usleep_range(cmds->post_wait_ms*1000,
 					((cmds->post_wait_ms*1000)+10));

@@ -3146,8 +3146,6 @@ void _sde_crtc_clear_dim_layers_v1(struct drm_crtc_state *state)
 		memset(&cstate->dim_layer[i], 0, sizeof(cstate->dim_layer[i]));
 
 	cstate->num_dim_layers = 0;
-
-	sde_hw_dim_go_inactive();
 }
 
 /**
@@ -3196,11 +3194,6 @@ static void _sde_crtc_set_dim_layer_v1(struct drm_crtc *crtc,
 	}
 	/* populate from user space */
 	cstate->num_dim_layers = count;
-	if (count == 0) {
-		sde_hw_dim_go_inactive();
-		return;
-	}
-
 	for (i = 0; i < count; i++) {
 		user_cfg = &dim_layer_v1.layer_cfg[i];
 
@@ -3533,10 +3526,11 @@ ssize_t oneplus_display_notify_fp_press(struct device *dev,
 	return count;
 }
 extern int aod_layer_hide;
+extern int oneplus_panel_status;
+extern int backup_dim_status;
+extern bool backup_dimlayer_hbm;
 extern bool HBM_flag;
 extern int dsi_panel_tx_cmd_set (struct dsi_panel *panel, enum dsi_cmd_set_type type);
-extern int __dsi_panel_tx_cmd_set (struct dsi_panel *panel, enum dsi_cmd_set_type type,
-					bool fod_usage);
 int oneplus_dim_status = 0;
 int oneplus_aod_fod = 0;
 int oneplus_aod_dc = 0;
@@ -3568,6 +3562,8 @@ int oneplus_aod_dc = 0;
 	dsi_connector = dsi_display->drm_conn;
 	mode_config = &drm_dev->mode_config;
 	sscanf(buf, "%du", &dim_status);
+	if (oneplus_panel_status == 0)
+		dim_status = 0;
 
 	if (dsi_display->panel->aod_status == 0 && (dim_status == 2)) {
 		pr_debug("fp set it in normal status\n");
@@ -3591,10 +3587,12 @@ int oneplus_aod_dc = 0;
 		return count;
 	oneplus_dim_status = dim_status;
 	oneplus_dimlayer_hbm_enable = oneplus_dim_status != 0;
+	backup_dimlayer_hbm = oneplus_dimlayer_hbm_enable;
+	backup_dim_status = oneplus_dim_status;
 	pr_debug("notify dim %d,aod = %d press= %d aod_hide =%d\n",
 		oneplus_dim_status, dsi_display->panel->aod_status, oneplus_onscreenfp_status, aod_layer_hide);
 	if (oneplus_dim_status == 1 && HBM_flag) {
-		rc = __dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_ON_5, true);
+		rc = dsi_panel_tx_cmd_set(dsi_display->panel, DSI_CMD_SET_HBM_ON_5);
 		if (rc) {
 			pr_err("failed to send DSI_CMD_SET_HBM_ON_5 cmds, rc=%d\n", rc);
 			return rc;
@@ -5794,9 +5792,10 @@ static int sde_crtc_onscreenfinger_atomic_check(struct sde_crtc_state *cstate,
 
     aod_mode = oneplus_aod_hid;
 	if (oneplus_dim_status == 5 && display->panel->aod_status == 0) {
+		dim_mode = 0;
 		oneplus_dim_status = 0;
 		oneplus_dimlayer_hbm_enable = false;
-		dim_mode = 0;
+		pr_debug("current dim = %d, oneplus_dimlayer_hbm_enable = %d\n", oneplus_dim_status, oneplus_dimlayer_hbm_enable);
 	}
 
 	for (i = 0; i < cnt; i++) {

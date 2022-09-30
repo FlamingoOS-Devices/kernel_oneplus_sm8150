@@ -5194,14 +5194,12 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	oneplus_panel_status = 2; // DISPLAY_POWER_ON
 	pr_debug("dsi_panel_enable aod_mode =%d\n",panel->aod_mode);
 
-	if (is_a12 == 1 && is_stock == 0) {
-		if (oneplus_auth_status == 2) {
-			backup_dimlayer_hbm = 0;
-			backup_dim_status = 0;
-		} else if (oneplus_auth_status == 1) {
-			backup_dimlayer_hbm = 1;
-			backup_dim_status = 1;
-		}
+	if (oneplus_auth_status == 2) {
+		backup_dimlayer_hbm = 0;
+		backup_dim_status = 0;
+	} else if (oneplus_auth_status == 1) {
+		backup_dimlayer_hbm = 1;
+		backup_dim_status = 1;
 	}
 	oneplus_dimlayer_hbm_enable = backup_dimlayer_hbm;
 	oneplus_dim_status = backup_dim_status;

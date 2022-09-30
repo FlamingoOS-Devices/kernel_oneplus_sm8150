@@ -137,6 +137,3 @@ endif
 # Module information used by KBuild framework
 obj-$(CONFIG_SND_SOC_DBMDX) += dspg_dbmdx_dlkm.o
 dspg_dbmdx_dlkm-y := $(DSPG_DBMDX_OBJS)
-
-# inject some build related information
-DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"

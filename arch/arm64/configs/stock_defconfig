@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/arm64 4.14.296 Kernel Configuration
+# Linux/arm64 4.14.299 Kernel Configuration
 #
 CONFIG_OPLUS_SYSTEM_KERNEL_QCOM=y
 CONFIG_OPLUS_FEATURE_PANIC_FLUSH=y
